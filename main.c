@@ -1,11 +1,13 @@
 // #include <stdlib.h>
 #include <stdio.h>
+#include "include\raylib.h"
 
 #define MEM_SIZE 4096
 #define STACK_SIZE 12
 #define NUM_REG 16
 #define DISPLAY_X 64
 #define DISPLAY_Y 32
+#define PIXEL_SIZE 10
 
 //Stored in memory from 0x50 to 0x9F
 unsigned char font[80] = {
@@ -37,13 +39,14 @@ unsigned short stackIndex = 0;
 unsigned short pc = 0x200; //Program Counter. chip-8 expects programs to be loaded in at 0x200
 unsigned char delayTimer;
 unsigned char soundTimer;
-unsigned long pixelMap[32] = {0}; //Each long is a horizontal row of 64 pixels, 32 rows high (left(MSB)->right(LSB), top(0)->bottom(31)) 
+unsigned long long pixelMap[32] = {0}; //Each long is a horizontal row of 64 pixels, 32 rows high (left(MSB)->right(LSB), top(0)->bottom(31)) 
 
 void clearScreen(void) {
     
 }
 
 char executeOpcode(unsigned short opcode){
+    // printf("%04X\n", opcode);
     char incrementPC = 1;
     switch(opcode & 0xF000) {
         case 0x0000:
@@ -57,7 +60,7 @@ char executeOpcode(unsigned short opcode){
                     pc = stack[stackIndex--];
                     break;
                 default: //Execute machine code 
-                    printf("opcode 0x0NNN is left unimplemented");
+                    //printf("opcode 0x0NNN is left unimplemented\n");
                     break;
             }
             break;
@@ -105,26 +108,30 @@ char executeOpcode(unsigned short opcode){
             //Vf is set to 1 if any pixels are flipped from set to unset, and to 0 if the former does not happen
             vRegister[0xF] = 0; 
 
-            for (int j = 0; j++; j < opcode & 0x000F) { //For N rows in opcode = 0xDXYN
+            for (int j = 0; j < (opcode & 0x000F); j++) { //For N rows in opcode = 0xDXYN
                 unsigned char spriteData = memory[iReg + j];
-                unsigned char bitCount = 7; //Start with leftmost pixel, which is the MSB of the byte
+                // unsigned char bitCount = 7; //Start with leftmost pixel, which is the MSB of the byte
 
                 for (int bitCount = 0; bitCount < 8; bitCount++) { //Iterate through each bit in the row
                     //is this pixel in this row of the sprite ON && is this pixel on the screen currently ON
-                    if ((spriteData & (0x80 >> bitCount)) && (pixelMap[y] & (0x80 >> bitCount))) {  
+                        // printf("%llu\n", pixelMap[y]);
+
+                    if ((spriteData & (0x80 >> bitCount)) && (pixelMap[y] & (1 << x))) {  
+                        // printf("%llu\n", pixelMap[y]);
                         pixelMap[y] &= ~(1 << x); //turn off this pixel
+                        // printf("%llu\n", pixelMap[y]);
+
                         vRegister[0xF] = 1;
                     } else {
                         pixelMap[y] |= (1 << x); //Turn on this pixel
                     }
 
-                    bitCount--;
                     x++;
-                    if (x == 63) //Check if we are at the rightmost edge of the screen
+                    if (x == 64) //Check if we are at the rightmost edge of the screen
                         break;
                 }
                 y++;
-                if (y == 31) //Check if we are at the bottom edge of the screen
+                if (y == 32) //Check if we are at the bottom edge of the screen
                     break;
             }
             break;
@@ -134,7 +141,7 @@ char executeOpcode(unsigned short opcode){
 
 int loadProgram(unsigned char memory[]) { //Load program into memory
     FILE *program;
-    if ((program = fopen("test_opcode.ch8", "rb")) == NULL) {
+    if ((program = fopen("IBM Logo.ch8", "rb")) == NULL) {
         printf("Error opening ROM\n");
         return 1;
     }
@@ -143,7 +150,7 @@ int loadProgram(unsigned char memory[]) { //Load program into memory
     unsigned short i = 0;
     while (fread(&c, sizeof(char), 1, program) > 0){
         // printf("%02X\n", c);
-        memory[i + 200] = c;
+        memory[i + 0x200] = c;
         i++;
     }
 
@@ -153,23 +160,81 @@ int loadProgram(unsigned char memory[]) { //Load program into memory
 
 
 int main(void) {
+    long long temp;
+    printf("%lld\n", sizeof(temp));
     char incrementPC = 0;
     //Load font into memory
     for (int i = 0; i < 80; i++) 
-        memory[i + 80] = font[i]; //80 bytes in font array, and 80 = 0x50
-
-    // for (int i = 0; i < 200; i++){
-    //     printf("%d: %x\n", i, memory[i]);
-    // }
+        memory[0x50 + i] = font[i]; //80 bytes in font array, stored in memory 0x50 to 0x9F
 
     loadProgram(memory);
 
-    // while(1) {
-    //     opcode = memory[pc] << 8 | memory[pc + 1];
-    //     incrementPC = executeOpcode(opcode);
-    //     
-        // if (incrementPC) 
-        //     pc+=2;
+    // for (int i = 0; i < 4096; i++){
+    //     printf("%d: %x\n", i, memory[i]);
     // }
+
+    //Initialize raylib window
+    InitWindow(DISPLAY_X * PIXEL_SIZE, DISPLAY_Y * PIXEL_SIZE, "CHIP-8 Emulator");
+    SetTargetFPS(3);
+
+    //Start raylib drawing loop
+    while(!WindowShouldClose()){
+        //Update variables everyloop
+        opcode = memory[pc] << 8 | memory[pc + 1];
+        incrementPC = executeOpcode(opcode);
+        
+        if (incrementPC) 
+            pc+=2;
+
+        //Update screen
+        BeginDrawing();
+        {
+            ClearBackground(BLACK);
+            // DrawRectangle(
+            //     63 * PIXEL_SIZE, 
+            //     31 * PIXEL_SIZE, 
+            //     PIXEL_SIZE, 
+            //     PIXEL_SIZE, 
+            //     WHITE
+            // );
+            // DrawRectangle(
+            //     63 * PIXEL_SIZE, 
+            //     0, 
+            //     PIXEL_SIZE, 
+            //     PIXEL_SIZE, 
+            //     WHITE
+            // );
+            // DrawRectangle(
+            //     0,  
+            //     31 * PIXEL_SIZE,
+            //     PIXEL_SIZE, 
+            //     PIXEL_SIZE, 
+            //     WHITE
+            // );
+            // DrawRectangle(
+            //     0, 
+            //     0, 
+            //     PIXEL_SIZE, 
+            //     PIXEL_SIZE, 
+            //     WHITE
+            // );
+            for (int i = 0; i < DISPLAY_Y; i++) {
+                printf("%llu\n", pixelMap[i]);
+                for (int j = 0; j < 64; j++){
+                    if (pixelMap[i] & (1 << j))
+                        DrawRectangle(
+                            j * PIXEL_SIZE, 
+                            i * PIXEL_SIZE, 
+                            PIXEL_SIZE, 
+                            PIXEL_SIZE, 
+                            WHITE
+                        );
+                }
+            }
+
+        }
+        EndDrawing();
+    }
+    CloseWindow();
 }
 
