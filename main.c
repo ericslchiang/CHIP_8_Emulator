@@ -39,8 +39,8 @@ unsigned short stackIndex = 0;
 unsigned short pc = 0x200; //Program Counter. chip-8 expects programs to be loaded in at 0x200
 unsigned char delayTimer;
 unsigned char soundTimer;
-unsigned long long pixelMap[32] = {0}; //Each long is a horizontal row of 64 pixels, 32 rows high (left(MSB)->right(LSB), top(0)->bottom(31)) 
-
+// unsigned long long pixelMap[32] = {0}; //Each long is a horizontal row of 64 pixels, 32 rows high (left(MSB)->right(LSB), top(0)->bottom(31)) 
+unsigned char pixelMap[DISPLAY_X * DISPLAY_Y] = {0};
 void clearScreen(void) {
     
 }
@@ -53,7 +53,7 @@ char executeOpcode(unsigned short opcode){
             switch(opcode & 0x00FF){
                 case 0x00E0: //Clears Screen
                     //clearScreen();
-                    for (int i = 0; i < DISPLAY_Y; i++)
+                    for (int i = 0; i < DISPLAY_Y  * DISPLAY_X; i++)
                         pixelMap[i] = 0;
                     break;
                 case 0x00EE: //Returns from subroutine
@@ -99,6 +99,24 @@ char executeOpcode(unsigned short opcode){
             iReg = (opcode & 0x0FFF);
             break;
         case 0xD000: //Draw sprite on screen. This is done by inverting (XOR) the sprite with the pixels currently on screen.
+            unsigned char x = vRegister[(opcode & 0x0F00) >> 8] % 64; 
+            unsigned char y = vRegister[(opcode & 0x00F0) >> 4] % 32;
+            vRegister[0xF] = 0; 
+
+            for (unsigned int row = 0; row < (opcode & 0x000F); row++){
+                unsigned char spriteRow = memory[iReg + row];
+
+                for (unsigned char bitCount = 0; bitCount < 8; bitCount++) {
+                    unsigned char spritePixel = spriteRow & (0x80 >> bitCount);
+                    if(spritePixel) {
+                        if(pixelMap[x + bitCount + (y + row) * 64] == 1) {
+                            vRegister[0xF] = 1;
+                        }
+                        pixelMap[x + bitCount + (y + row) * 64] ^=1;
+                    }
+                }
+            }
+        /* OLD DRAW FUNCTION
             unsigned char x, y;
             x = vRegister[(opcode & 0x0F00) >> 8] % 64; 
             y = vRegister[(opcode & 0x00F0) >> 4] % 32;
@@ -135,6 +153,7 @@ char executeOpcode(unsigned short opcode){
                     break;
             }
             break;
+            */
     }
     return incrementPC;
 }
@@ -219,9 +238,9 @@ int main(void) {
             //     WHITE
             // );
             for (int i = 0; i < DISPLAY_Y; i++) {
-                printf("%llu\n", pixelMap[i]);
-                for (int j = 0; j < 64; j++){
-                    if (pixelMap[i] & (1 << j))
+                // printf("%llu\n", pixelMap[i]);
+                for (int j = 0; j < DISPLAY_X; j++){
+                    if (pixelMap[i*64 + j])
                         DrawRectangle(
                             j * PIXEL_SIZE, 
                             i * PIXEL_SIZE, 
