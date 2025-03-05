@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
 #include "include\raylib.h"
 
 #define MEM_SIZE 4096
@@ -10,6 +11,7 @@
 #define DISPLAY_X 64
 #define DISPLAY_Y 32
 #define PIXEL_SIZE 10
+#define CYCLE_DELAY 0.08
 
 //Stored in memory from 0x50 to 0x9F
 uint8_t font[80] = {
@@ -34,10 +36,10 @@ uint8_t font[80] = {
 //Keypress matrix
 uint8_t keyPress[16] = {0};
 /*
-1 2 3 C
-4 5 6 D
-7 8 9 E
-A 0 B F
+1 2 3 C     1 2 3 4
+4 5 6 D =>  Q W E R
+7 8 9 E     A S D F
+A 0 B F     Z X C V
 */
 
 //Setup virtual memory and registers
@@ -50,21 +52,18 @@ uint16_t stackIndex = 0;
 uint16_t pc = 0x200; //Program Counter. chip-8 expects programs to be loaded in at 0x200
 uint8_t delayTimer;
 uint8_t soundTimer;
-// unsigned long long pixelMap[32] = {0}; //Each long is a horizontal row of 64 pixels, 32 rows high (left(MSB)->right(LSB), top(0)->bottom(31)) 
 uint8_t pixelMap[DISPLAY_X * DISPLAY_Y] = {0};
-
+uint8_t drawFlag = 0;
 
 uint8_t executeOpcode(uint16_t opcode){
-    // printf("%04X\n", opcode);
     uint8_t incrementPC = 1;
+    drawFlag = 0;
     switch(opcode & 0xF000) {
         case 0x0000:
             switch(opcode & 0x00FF){
                 case 0x00E0: //Clears Screen
-                    //clearScreen();
                     memset(pixelMap, 0, sizeof(pixelMap));
-                    // for (int i = 0; i < DISPLAY_Y  * DISPLAY_X; i++)
-                    //     printf("%d\n", pixelMap[i]);
+                    drawFlag = 1;
                     break;
                 case 0x00EE: //Returns from subroutine
                     pc = stack[--stackIndex];
@@ -134,13 +133,10 @@ uint8_t executeOpcode(uint16_t opcode){
                     vRegister[0xF] = overflow ? 0 : 1;
                     break;
                 case 0x0006: //Right shift VX by 1 for 0x8XY6
+                    vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4]; //cosmac instruction
                     overflow = vRegister[(opcode & 0x0F00) >> 8] & 0x01; //Save the shifted LSB into VF
                     vRegister[(opcode & 0x0F00) >> 8] >>= 1;
                     vRegister[0xF] = overflow;
-                    //Super chip implementation
-                    // vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4];
-                    // vRegister[(opcode & 0x0F00) >> 8] >>= 1;
-                    // vRegister[0xF] = vRegister[(opcode & 0x00F0) >> 4] & 0x80 ? 1 : 0;
                     break;
                 case 0x0007: //VX = VY - Vx for 0x8XY7    
                     overflow = vRegister[(opcode & 0x00F0) >> 4] < vRegister[(opcode & 0x0F00) >> 8]; //Check if VX underflows
@@ -148,13 +144,10 @@ uint8_t executeOpcode(uint16_t opcode){
                     vRegister[0xF] = overflow ? 0 : 1;
                     break;
                 case 0x000E: //Left shft VX by 1 for 0x8XYE
+                    vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4]; //cosmac instruction
                     overflow = (vRegister[(opcode & 0x0F00) >> 8] & 0x80) >> 7; //Save the shifted MSB into VF
                     vRegister[(opcode & 0x0F00) >> 8] <<= 1;
                     vRegister[0xF] = overflow;
-                    //Super chip implementation
-                    // vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4];
-                    // vRegister[(opcode & 0x0F00) >> 8] <<= 1;
-                    // vRegister[0xF] = vRegister[(opcode & 0x00F0) >> 4] & 0x80 ? 1 : 0;
                     break;
             }
         case 0xA000: //Sets I register to NNN for 0xANNN
@@ -172,10 +165,10 @@ uint8_t executeOpcode(uint16_t opcode){
             uint8_t y = vRegister[(opcode & 0x00F0) >> 4] % 32;
             vRegister[0xF] = 0; 
 
-            for (uint8_t row = 0; row < (opcode & 0x000F) && ((y + row) < 32); row++){
+            for (uint8_t row = 0; row < (opcode & 0x000F) && (y + row) < 32; row++){
                 uint8_t spriteRow = memory[iReg + row];
 
-                for (uint8_t bitCount = 0; bitCount < 8 && ((x + bitCount) < 64); bitCount++) {
+                for (uint8_t bitCount = 0; bitCount < 8 && (x + bitCount) < 64; bitCount++) {
                     uint8_t spritePixel = spriteRow & (0x80 >> bitCount);
                     if(spritePixel) {
                         if(pixelMap[x + bitCount + (y + row) * 64]) {
@@ -185,45 +178,8 @@ uint8_t executeOpcode(uint16_t opcode){
                     }
                 }
             }
+            drawFlag = 1;
             break;
-        /* OLD DRAW FUNCTION
-            uint8_t x, y;
-            x = vRegister[(opcode & 0x0F00) >> 8] % 64; 
-            y = vRegister[(opcode & 0x00F0) >> 4] % 32;
-            //Screen is 64 x 32 pixels. Any sprite that exceeds those values will be clipped.
-            //x and y are modulo'd to reset their coordinate position to the remainder
-
-            //Vf is set to 1 if any pixels are flipped from set to unset, and to 0 if the former does not happen
-            vRegister[0xF] = 0; 
-
-            for (int j = 0; j < (opcode & 0x000F); j++) { //For N rows in opcode = 0xDXYN
-                uint8_t spriteData = memory[iReg + j];
-                // uint8_t bitCount = 7; //Start with leftmost pixel, which is the MSB of the byte
-
-                for (int bitCount = 0; bitCount < 8; bitCount++) { //Iterate through each bit in the row
-                    //is this pixel in this row of the sprite ON && is this pixel on the screen currently ON
-                        // printf("%llu\n", pixelMap[y]);
-
-                    if ((spriteData & (0x80 >> bitCount)) && (pixelMap[y] & (1 << x))) {  
-                        // printf("%llu\n", pixelMap[y]);
-                        pixelMap[y] &= ~(1 << x); //turn off this pixel
-                        // printf("%llu\n", pixelMap[y]);
-
-                        vRegister[0xF] = 1;
-                    } else {
-                        pixelMap[y] |= (1 << x); //Turn on this pixel
-                    }
-
-                    x++;
-                    if (x == 64) //Check if we are at the rightmost edge of the screen
-                        break;
-                }
-                y++;
-                if (y == 32) //Check if we are at the bottom edge of the screen
-                    break;
-            }
-            break;
-            */
         case 0xE000: //Skips condition based on if a key was pressed or NOT pressed
             if ((opcode & 0x000F) == 0x000E){
                 if (keyPress[vRegister[(opcode & 0x0F00) >> 8]])
@@ -244,10 +200,9 @@ uint8_t executeOpcode(uint16_t opcode){
                         if (keyPress[i]){
                             vRegister[Vx] = i;
                             break;
-                        } else {
+                        } 
+                        if (i == 15)
                             incrementPC = 0;
-                            break;
-                        }
                     }
                     break;
                 case 0x0015: //Sets delay timer to VX
@@ -271,12 +226,16 @@ uint8_t executeOpcode(uint16_t opcode){
                     memory[iReg] = val;
                     break;
                 case 0x0055: //Stores in memory starting from I values from V0~VX
-                    for (uint8_t i = 0; i <= Vx; i++) //VX is inclusive
+                    for (uint8_t i = 0; i <= Vx; i++) {//VX is inclusive
                         memory[iReg + i] = vRegister[i];
+                    }
+                    // iReg += (Vx);
                     break;
                 case 0x0065: //Stores in V0~VX values incrementing in memory starting from I
-                    for (uint8_t i = 0; i <= Vx; i++) //VX is inclusive
+                    for (uint8_t i = 0; i <= Vx; i++) {//VX is inclusive
                         vRegister[i] = memory[iReg + i];
+                    }
+                    // iReg += (Vx);
                     break; 
 
             }
@@ -286,7 +245,7 @@ uint8_t executeOpcode(uint16_t opcode){
 
 int loadProgram(uint8_t memory[]) { //Load program into memory
     FILE *program;
-    if ((program = fopen("ROM\\5-quirks.ch8", "rb")) == NULL) {
+    if ((program = fopen("ROM\\tetris.ch8", "rb")) == NULL) {
         printf("Error opening ROM\n");
         return 1;
     }
@@ -294,7 +253,6 @@ int loadProgram(uint8_t memory[]) { //Load program into memory
     uint8_t c;
     uint16_t i = 0;
     while (fread(&c, sizeof(char), 1, program) > 0){
-        // printf("%02X\n", c);
         memory[i + 0x200] = c;
         i++;
     }
@@ -324,6 +282,8 @@ void checkInput(void) {
 
 
 int main(void) {
+    uint32_t numCycles = 0;
+    time_t now, last = clock(), start, end;
     char incrementPC = 0;
     //Load font into memory
     for (uint8_t i = 0; i < 80; i++) 
@@ -331,40 +291,42 @@ int main(void) {
 
     loadProgram(memory);
 
-    // for (int i = 0; i < 4096; i++){
-    //     printf("%d: %x\n", i, memory[i]);
-    // }
-
     //Initialize raylib window
     InitWindow(DISPLAY_X * PIXEL_SIZE, DISPLAY_Y * PIXEL_SIZE, "CHIP-8 Emulator");
-    SetTargetFPS(200);
-    
-    // printf("\n1 2 3 4 Q W E R A S D F Z X C V\n");
+    SetTargetFPS(300);
 
+    // start = clock();
     //Start raylib drawing loop
     while(!WindowShouldClose()){
+        double duration = (float)((now = clock()) - last) / 100000.0 * 1000;
+        while(duration < CYCLE_DELAY){
+            now = clock();
+            duration = (double)(now - last) / 100000.0 * 1000;
+            printf("%.6f\n", duration); //TODO: duration seems to only have a significant digit of 2
+        }
+        last = now;
+
+        
+
         //Update variables everyloop
         opcode = memory[pc] << 8 | memory[pc + 1];
         incrementPC = executeOpcode(opcode);
+        // numCycles++;
         
         if (incrementPC) 
             pc+=2;
 
         //Decrement timers if they've been set
+        //TODO: Tie timer decrements to measured time
         if (delayTimer > 0) delayTimer--;
         if (soundTimer > 0) soundTimer--;
 
         //Check for inputs
         checkInput();
-        // printf("\n");
-        // for (uint8_t i = 0; i < 16; i++) {
-            // printf("%d ", keyPress[i]);
-            // printf("%d: %d\n", i, vRegister[i]);
-        // }
 
         //Update screen
         BeginDrawing();
-        {
+        // if (drawFlag) {
             ClearBackground(BLACK);
             for (uint8_t i = 0; i < DISPLAY_Y; i++) {
                 // printf("%llu\n", pixelMap[i]);
@@ -379,9 +341,9 @@ int main(void) {
                         );
                 }
             }
-
-        }
+        // }
         EndDrawing();
+
         if (!soundTimer){} //Check if buzzer is at zero
             // printf("BEEEEEEEEEP!\n");
             // PlaySound(); //Use raylib to play sound file, for now just printf
