@@ -222,7 +222,7 @@ void executeOpcode(uint16_t opcode){
                     iReg += vRegister[Vx];
                     break;
                 case 0x0029: //Sets I to the address of sprite of the character (0-F) stored in lower nibble of VX. 
-                    iReg = memory[(vRegister[Vx] & 0x0F) * 5 + 0x50]; //Font is stored in memory starting at 0x50. Each character is 5 bytes, starting from 0 to F 
+                    iReg = (vRegister[Vx] & 0x0F) * 5; //+ 0x50; //Font is stored in memory starting at 0x50. Each character is 5 bytes, starting from 0 to F 
                     break;
                 case 0x0033: //Stores the values of each decimal digit of VX into memory at I(hundreds), I+1(tens), I+2(ones)
                     uint8_t val = vRegister[Vx];
@@ -253,7 +253,7 @@ void executeOpcode(uint16_t opcode){
 
 int loadProgram(uint8_t memory[]) { //Load program into memory
     FILE *program;
-    if ((program = fopen("ROM\\brix.ch8", "rb")) == NULL) {
+    if ((program = fopen("ROM\\tetris.ch8", "rb")) == NULL) {
         printf("Error opening ROM\n");
         return 1;
     }
