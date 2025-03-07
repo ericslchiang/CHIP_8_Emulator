@@ -11,7 +11,7 @@
 #define DISPLAY_X 64
 #define DISPLAY_Y 32
 #define PIXEL_SIZE 10
-#define CYCLE_DELAY 0.08
+#define CYCLE_DELAY 1/500.0
 
 //Stored in memory from 0x50 to 0x9F
 uint8_t font[80] = {
@@ -53,9 +53,9 @@ uint16_t pc = 0x200; //Program Counter. chip-8 expects programs to be loaded in 
 uint8_t delayTimer;
 uint8_t soundTimer;
 uint8_t pixelMap[DISPLAY_X * DISPLAY_Y] = {0};
-uint8_t drawFlag = 0;
+uint8_t drawFlag = 1;
 
-uint8_t executeOpcode(uint16_t opcode){
+void executeOpcode(uint16_t opcode){
     uint8_t incrementPC = 1;
     drawFlag = 0;
     switch(opcode & 0xF000) {
@@ -75,12 +75,12 @@ uint8_t executeOpcode(uint16_t opcode){
             break;
         case 0x1000: //GOTO address in opcode 0x1NNN
             pc = opcode & 0x0FFF;
-            incrementPC = 0;
+            // incrementPC = 0;
             break;
         case 0x2000: //Execute subroutine at address in opcode 0x2NNN
             stack[stackIndex++] = pc;
             pc = opcode & 0x0FFF;
-            incrementPC = 0;
+            // incrementPC = 0;
             break;
         case 0x3000: //Skips next instruction if VX == NN for 0x3XNN
             if ((opcode & 0x00FF) == vRegister[(opcode & 0x0F00) >> 8])
@@ -102,9 +102,10 @@ uint8_t executeOpcode(uint16_t opcode){
             vRegister[(opcode & 0x0F00) >> 8] = (opcode & 0x00FF);
             break;
         case 0x7000: //Adds NN to VX for 0x7XNN
-            vRegister[(opcode & 0x0F00) >> 8]+=(opcode & 0x00FF);
+            uint16_t total = vRegister[(opcode & 0x0F00) >> 8] + (opcode & 0x00FF); 
+            vRegister[(opcode & 0x0F00) >> 8] = total % 256;
             break;
-        case 0x8000: 
+        case 0x8000: //Check if V[0xF] is suppose to hold result or carry bit
             uint8_t overflow = 0;
             switch(opcode & 0x000F){
                 case 0x0000: //Set VX to value of VY for 0x8XY0
@@ -124,13 +125,14 @@ uint8_t executeOpcode(uint16_t opcode){
                     break;
                 case 0x0004: //VX += VY for 0x8XY4
                     overflow = vRegister[(opcode & 0x0F00) >> 8] > (0xFF - (vRegister[(opcode & 0x00F0) >> 4]));
-                    vRegister[(opcode & 0x0F00) >> 8] += vRegister[(opcode & 0x00F0) >> 4];
+                    uint16_t sum = vRegister[(opcode & 0x0F00) >> 8] + vRegister[(opcode & 0x00F0) >> 4]; 
+                    vRegister[(opcode & 0x0F00) >> 8] = sum & 255;
                     vRegister[0xF] = overflow ? 1 : 0;
                     break;
                 case 0x0005: //VX -= VY for 0x8XY5
-                    overflow = vRegister[(opcode & 0x0F00) >> 8] < vRegister[(opcode & 0x00F0) >> 4]; //Check if VX underflows
+                    overflow = vRegister[(opcode & 0x0F00) >> 8] >= vRegister[(opcode & 0x00F0) >> 4]; //Check if VX underflows
                     vRegister[(opcode & 0x0F00) >> 8] -= vRegister[(opcode & 0x00F0) >> 4];
-                    vRegister[0xF] = overflow ? 0 : 1;
+                    vRegister[0xF] = overflow ? 1 : 0;
                     break;
                 case 0x0006: //Right shift VX by 1 for 0x8XY6
                     vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4]; //cosmac instruction
@@ -139,9 +141,9 @@ uint8_t executeOpcode(uint16_t opcode){
                     vRegister[0xF] = overflow;
                     break;
                 case 0x0007: //VX = VY - Vx for 0x8XY7    
-                    overflow = vRegister[(opcode & 0x00F0) >> 4] < vRegister[(opcode & 0x0F00) >> 8]; //Check if VX underflows
+                    overflow = vRegister[(opcode & 0x00F0) >> 4] >= vRegister[(opcode & 0x0F00) >> 8]; //Check if VX underflows
                     vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4] - vRegister[(opcode & 0x0F00) >> 8];
-                    vRegister[0xF] = overflow ? 0 : 1;
+                    vRegister[0xF] = overflow ? 1 : 0;
                     break;
                 case 0x000E: //Left shft VX by 1 for 0x8XYE
                     vRegister[(opcode & 0x0F00) >> 8] = vRegister[(opcode & 0x00F0) >> 4]; //cosmac instruction
@@ -150,31 +152,36 @@ uint8_t executeOpcode(uint16_t opcode){
                     vRegister[0xF] = overflow;
                     break;
             }
+            break;
         case 0xA000: //Sets I register to NNN for 0xANNN
             iReg = (opcode & 0x0FFF);
             break;
         case 0xB000: //Jumps to address NNN + V0 for 0xBNNN
             pc = (opcode & 0x0FFF) + vRegister[0];
-            incrementPC = 0; 
+            // incrementPC = 0; 
             break;
         case 0xC000: //Sets VX to bitwise AND between NN and random number for 0xCXNN
-            vRegister[(opcode & 0x0F00) >> 8] = (opcode & 0x00FF) & (rand() % 256);
+            srand(time(NULL));
+            vRegister[(opcode & 0x0F00) >> 8] = (opcode & 0x00FF) & (rand() & 255);
             break;
         case 0xD000: //Draw sprite on screen. This is done by inverting (XOR) the sprite with the pixels currently on screen.
             uint8_t x = vRegister[(opcode & 0x0F00) >> 8] % 64; 
             uint8_t y = vRegister[(opcode & 0x00F0) >> 4] % 32;
+            uint8_t height = (opcode & 0x000F);
             vRegister[0xF] = 0; 
 
-            for (uint8_t row = 0; row < (opcode & 0x000F) && (y + row) < 32; row++){
+            for (uint8_t row = 0; row <  height && (y + row) < 32; row++){
                 uint8_t spriteRow = memory[iReg + row];
 
                 for (uint8_t bitCount = 0; bitCount < 8 && (x + bitCount) < 64; bitCount++) {
-                    uint8_t spritePixel = spriteRow & (0x80 >> bitCount);
+                    uint8_t spritePixel = spriteRow & (0x80u >> bitCount);
+                    uint8_t *screenPixel = &pixelMap[x + bitCount + (y + row) * 64];
                     if(spritePixel) {
-                        if(pixelMap[x + bitCount + (y + row) * 64]) {
+                        if(*screenPixel == 0xFF) {
                             vRegister[0xF] = 1;
                         }
-                        pixelMap[x + bitCount + (y + row) * 64] ^= 1;
+                        *screenPixel ^= 0xFF;
+                        
                     }
                 }
             }
@@ -195,14 +202,14 @@ uint8_t executeOpcode(uint16_t opcode){
                 case 0x0007: //Set VX to the value of the delay timer for 0xFX07
                     vRegister[Vx] = delayTimer;
                     break;
-                case 0x000A: //Sets VX to keypress
+                case 0x000A: //Waits for keypress
                     for (uint8_t i = 0; i < 16; i++) {
                         if (keyPress[i]){
                             vRegister[Vx] = i;
                             break;
-                        } 
-                        if (i == 15)
-                            incrementPC = 0;
+                        } else if (i == 15){
+                            incrementPC -= 2;
+                        }
                     }
                     break;
                 case 0x0015: //Sets delay timer to VX
@@ -223,29 +230,30 @@ uint8_t executeOpcode(uint16_t opcode){
                     val /= 10;
                     memory[iReg + 1] = val % 10;
                     val /= 10;
-                    memory[iReg] = val;
+                    memory[iReg] = val % 10;
                     break;
                 case 0x0055: //Stores in memory starting from I values from V0~VX
                     for (uint8_t i = 0; i <= Vx; i++) {//VX is inclusive
                         memory[iReg + i] = vRegister[i];
                     }
-                    // iReg += (Vx);
+                    iReg += Vx;
                     break;
                 case 0x0065: //Stores in V0~VX values incrementing in memory starting from I
                     for (uint8_t i = 0; i <= Vx; i++) {//VX is inclusive
                         vRegister[i] = memory[iReg + i];
                     }
-                    // iReg += (Vx);
+                    iReg += Vx;
                     break; 
 
             }
+            break;
     }
-    return incrementPC;
+    // return incrementPC;
 }
 
 int loadProgram(uint8_t memory[]) { //Load program into memory
     FILE *program;
-    if ((program = fopen("ROM\\tetris.ch8", "rb")) == NULL) {
+    if ((program = fopen("ROM\\brix.ch8", "rb")) == NULL) {
         printf("Error opening ROM\n");
         return 1;
     }
@@ -282,70 +290,70 @@ void checkInput(void) {
 
 
 int main(void) {
-    uint32_t numCycles = 0;
-    time_t now, last = clock(), start, end;
+    time_t now, last = clock();
     char incrementPC = 0;
+    uint16_t numCycles = 0;
     //Load font into memory
     for (uint8_t i = 0; i < 80; i++) 
-        memory[0x50 + i] = font[i]; //80 bytes in font array, stored in memory 0x50 to 0x9F
+        memory[i] = font[i]; //80 bytes in font array, stored in memory 0x50 to 0x9F
+        // memory[0x50 + i] = font[i]; //80 bytes in font array, stored in memory 0x50 to 0x9F
 
     loadProgram(memory);
 
     //Initialize raylib window
     InitWindow(DISPLAY_X * PIXEL_SIZE, DISPLAY_Y * PIXEL_SIZE, "CHIP-8 Emulator");
-    SetTargetFPS(300);
+    // SetTargetFPS(60);
 
-    // start = clock();
     //Start raylib drawing loop
     while(!WindowShouldClose()){
-        double duration = (float)((now = clock()) - last) / 100000.0 * 1000;
+        double duration = (double)((now = clock()) - last) / 1000.0 ;
         while(duration < CYCLE_DELAY){
-            now = clock();
-            duration = (double)(now - last) / 100000.0 * 1000;
-            printf("%.6f\n", duration); //TODO: duration seems to only have a significant digit of 2
+            duration = (double)(((now = clock()) - last) / 1000.0);
+            printf("%06f\n", duration);
         }
         last = now;
 
-        
-
         //Update variables everyloop
+        checkInput();
         opcode = memory[pc] << 8 | memory[pc + 1];
-        incrementPC = executeOpcode(opcode);
-        // numCycles++;
-        
-        if (incrementPC) 
-            pc+=2;
+        pc+=2;
+
+        executeOpcode(opcode);
+        numCycles++;
 
         //Decrement timers if they've been set
-        //TODO: Tie timer decrements to measured time
-        if (delayTimer > 0) delayTimer--;
-        if (soundTimer > 0) soundTimer--;
-
-        //Check for inputs
-        checkInput();
-
+        if (numCycles == 9) {
+            if (delayTimer > 0) delayTimer--;
+            if (soundTimer > 0) soundTimer--;
+            numCycles = 0;
+        }
         //Update screen
         BeginDrawing();
-        // if (drawFlag) {
-            ClearBackground(BLACK);
-            for (uint8_t i = 0; i < DISPLAY_Y; i++) {
-                // printf("%llu\n", pixelMap[i]);
-                for (uint8_t j = 0; j < DISPLAY_X; j++){
-                    if (pixelMap[i*64 + j])
-                        DrawRectangle(
-                            j * PIXEL_SIZE, 
-                            i * PIXEL_SIZE, 
-                            PIXEL_SIZE, 
-                            PIXEL_SIZE, 
-                            WHITE
-                        );
+        for (uint8_t i = 0; i < DISPLAY_Y; i++) {
+            for (uint8_t j = 0; j < DISPLAY_X; j++){
+                if (!pixelMap[i*64 + j]){
+                    DrawRectangle(
+                        j * PIXEL_SIZE, 
+                        i * PIXEL_SIZE, 
+                        PIXEL_SIZE, 
+                        PIXEL_SIZE, 
+                        BLACK
+                    );
+                } else {
+                    DrawRectangle(
+                        j * PIXEL_SIZE, 
+                        i * PIXEL_SIZE, 
+                        PIXEL_SIZE, 
+                        PIXEL_SIZE, 
+                        WHITE
+                    );
                 }
             }
-        // }
+        }
         EndDrawing();
 
         if (!soundTimer){} //Check if buzzer is at zero
-            // printf("BEEEEEEEEEP!\n");
+            printf("BEEEEEEEEEP!\n");
             // PlaySound(); //Use raylib to play sound file, for now just printf
 
     }
