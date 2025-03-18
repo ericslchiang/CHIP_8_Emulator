@@ -241,9 +241,13 @@ void executeOpcode(uint16_t opcode){
 }
 
 //Load program into memory
-int loadProgram(uint8_t memory[]) { 
+int loadProgram(uint8_t memory[], char *gameName) { 
     FILE *program;
-    if ((program = fopen("ROM\\pong.ch8", "rb")) == NULL) {
+    char gameLocation[32] = "ROM\\";
+    strcat(gameLocation, gameName);
+    strcat(gameLocation, ".ch8");
+    
+    if ((program = fopen(gameLocation, "rb")) == NULL) {
         printf("Error opening ROM\n");
         return 1;
     }
@@ -279,25 +283,39 @@ void checkInput(void) {
     keyPress[15] = IsKeyDown(KEY_V) ? 1 : 0;
 }
 
-int main(void) {
+int main(int argc, char** argv) {
+    if (argc > 3) {
+        printf("Invalid Inputs. Start the emulator calling the .exe with format: \"main.exe <gamename> <delay>\"");
+        return 1;
+    }
+
+    if(loadProgram(memory, argv[1])) {
+        printf("Invalid Game Name");
+        return 1;
+    }
+    
     //Load font into memory
     for (uint8_t i = 0; i < 80; i++) 
         memory[0x50 + i] = font[i]; //80 bytes in font array, stored in memory 0x50 to 0x9F
-
-    loadProgram(memory);
 
     //Initialize raylib window
     InitWindow(DISPLAY_X * PIXEL_SIZE, DISPLAY_Y * PIXEL_SIZE, "CHIP-8 Emulator");
     SetTargetFPS(60);
 
     double now = 0, last = 0; //Used for tracking frame rate
+    uint8_t delay = 0; //Used for user setting game speed
+    if (argv[2] != NULL)
+        delay = atoi(argv[2]);
+    else 
+        delay = 8; //Execute instructions at ~8 opcodes per frame (500Hz)
+
 
     //Start raylib drawing loop
     while(!WindowShouldClose()){
         uint8_t timesDrawn = 0;
 
-        //Execute instructions at ~8 opcodes per frame (500Hz)
-        for (uint8_t temp = 0; temp < 500/60; temp++) {
+        
+        for (uint8_t temp = 0; temp < delay; temp++) {
             checkInput();
             opcode = memory[pc] << 8 | memory[pc + 1];
 
