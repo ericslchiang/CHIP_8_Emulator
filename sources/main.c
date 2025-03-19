@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
-#include "include\raylib.h"
+#include "raylib.h"
 
 #define MEM_SIZE 4096
 #define STACK_SIZE 12
@@ -243,7 +243,7 @@ void executeOpcode(uint16_t opcode){
 //Load program into memory
 int loadProgram(uint8_t memory[], char *gameName) { 
     FILE *program;
-    char gameLocation[32] = "ROM\\";
+    char gameLocation[32] = "..\\ROM\\";
     strcat(gameLocation, gameName);
     strcat(gameLocation, ".ch8");
     
@@ -284,13 +284,12 @@ void checkInput(void) {
 }
 
 int main(int argc, char** argv) {
-    if (argc > 3) {
-        printf("Invalid Inputs. Start the emulator calling the .exe with format: \"main.exe <gamename> <delay>\"");
+    if (argc > 3 || argc < 2) {
+        printf("Invalid Inputs. Start the emulator calling the .exe with format: \"main.exe <game name> <delay>\"");
         return 1;
     }
 
     if(loadProgram(memory, argv[1])) {
-        printf("Invalid Game Name");
         return 1;
     }
     
