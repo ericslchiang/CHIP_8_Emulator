@@ -1,4 +1,4 @@
-## CHIP-8 Emulator by eslchiang
+## CHIP-8 Emulator by ericslchiang
 ### March 18th 2025  
 
 ![](assets/output.gif)
